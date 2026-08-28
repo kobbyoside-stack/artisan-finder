@@ -1,180 +1,212 @@
-import { Image } from 'expo-image';
-import { SymbolView } from 'expo-symbols';
-import { Platform, Pressable, ScrollView, StyleSheet } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useState } from 'react';
+import {
+  Dimensions,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View
+} from 'react-native';
 
-import { ExternalLink } from '@/components/external-link';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { Collapsible } from '@/components/ui/collapsible';
-import { WebBadge } from '@/components/web-badge';
-import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
-import { useTheme } from '@/hooks/use-theme';
+const { width } = Dimensions.get('window');
 
-export default function TabTwoScreen() {
-  const safeAreaInsets = useSafeAreaInsets();
-  const insets = {
-    ...safeAreaInsets,
-    bottom: safeAreaInsets.bottom + BottomTabInset + Spacing.three,
-  };
-  const theme = useTheme();
+// Mock Artisan Data
+const ARTISAN_DATA = {
+  id: '1',
+  name: 'Kwame Mensah',
+  category: 'Auto Mechanic',
+  rating: 4.8,
+  reviewsCount: 24,
+  location: 'Kumasi, Ghana',
+  bio: 'Certified auto technician with over 8 years of experience in engine diagnostics, electronic repairs, and general vehicle maintenance. Dedicated to fast, reliable service.',
+  phone: '+233 24 000 0000',
+  mapCoordinates: {
+    latitude: 6.6885,
+    longitude: -1.6244,
+  },
+};
 
-  const contentPlatformStyle = Platform.select({
-    android: {
-      paddingTop: insets.top,
-      paddingLeft: insets.left,
-      paddingRight: insets.right,
-      paddingBottom: insets.bottom,
-    },
-    web: {
-      paddingTop: Spacing.six,
-      paddingBottom: Spacing.four,
-    },
-  });
+export default function ExploreScreen() {
+  const [artisan] = useState(ARTISAN_DATA);
+  const [reviewText, setReviewText] = useState('');
 
   return (
-    <ScrollView
-      style={[styles.scrollView, { backgroundColor: theme.background }]}
-      contentInset={insets}
-      contentContainerStyle={[styles.contentContainer, contentPlatformStyle]}>
-      <ThemedView style={styles.container}>
-        <ThemedView style={styles.titleContainer}>
-          <ThemedText type="subtitle">Explore</ThemedText>
-          <ThemedText style={styles.centerText} themeColor="textSecondary">
-            This starter app includes example{'\n'}code to help you get started.
-          </ThemedText>
+    <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
+      {/* Header Profile Section */}
+      <View style={styles.headerCard}>
+        <View style={styles.avatarPlaceholder}>
+          <Text style={styles.avatarText}>{artisan.name.charAt(0)}</Text>
+        </View>
+        <Text style={styles.nameText}>{artisan.name}</Text>
+        <Text style={styles.categoryText}>{artisan.category}</Text>
+        <Text style={styles.locationText}>📍 {artisan.location}</Text>
+      </View>
 
-          <ExternalLink href="https://docs.expo.dev" asChild>
-            <Pressable style={({ pressed }) => pressed && styles.pressed}>
-              <ThemedView type="backgroundElement" style={styles.linkButton}>
-                <ThemedText type="link">Expo documentation</ThemedText>
-                <SymbolView
-                  tintColor={theme.text}
-                  name={{ ios: 'arrow.up.right.square', android: 'link', web: 'link' }}
-                  size={12}
-                />
-              </ThemedView>
-            </Pressable>
-          </ExternalLink>
-        </ThemedView>
+      {/* 1. SEPARATE BIO CARD */}
+      <View style={styles.card}>
+        <Text style={styles.sectionTitle}>About / Bio</Text>
+        <Text style={styles.bioText}>{artisan.bio}</Text>
+      </View>
 
-        <ThemedView style={styles.sectionsWrapper}>
-          <Collapsible title="File-based routing">
-            <ThemedText type="small">
-              This app has two screens: <ThemedText type="code">src/app/index.tsx</ThemedText> and{' '}
-              <ThemedText type="code">src/app/explore.tsx</ThemedText>
-            </ThemedText>
-            <ThemedText type="small">
-              The layout file in <ThemedText type="code">src/app/_layout.tsx</ThemedText> sets up
-              the tab navigator.
-            </ThemedText>
-            <ExternalLink href="https://docs.expo.dev/router/introduction">
-              <ThemedText type="linkPrimary">Learn more</ThemedText>
-            </ExternalLink>
-          </Collapsible>
+      {/* 2. SEPARATE MAP CARD */}
+      <View style={styles.card}>
+        <Text style={styles.sectionTitle}>Location & Map</Text>
+        <View style={styles.mapContainer}>
+          <View style={styles.mapMock}>
+            <Text style={styles.mapPinIcon}>📍</Text>
+            <Text style={styles.mapText}>Map Preview Area</Text>
+            <Text style={styles.coordinatesText}>
+              Lat: {artisan.mapCoordinates.latitude}, Lon: {artisan.mapCoordinates.longitude}
+            </Text>
+          </View>
+        </View>
+      </View>
 
-          <Collapsible title="Android, iOS, and web support">
-            <ThemedView type="backgroundElement" style={styles.collapsibleContent}>
-              <ThemedText type="small">
-                You can open this project on Android, iOS, and the web. To open the web version,
-                press <ThemedText type="smallBold">w</ThemedText> in the terminal running this
-                project.
-              </ThemedText>
-              <Image
-                source={require('@/assets/images/tutorial-web.png')}
-                style={styles.imageTutorial}
-              />
-            </ThemedView>
-          </Collapsible>
+      {/* Review Section */}
+      <View style={styles.card}>
+        <Text style={styles.sectionTitle}>Reviews & Rating</Text>
+        <Text style={styles.ratingText}>⭐ {artisan.rating} ({artisan.reviewsCount} reviews)</Text>
 
-          <Collapsible title="Images">
-            <ThemedText type="small">
-              For static images, you can use the <ThemedText type="code">@2x</ThemedText> and{' '}
-              <ThemedText type="code">@3x</ThemedText> suffixes to provide files for different
-              screen densities.
-            </ThemedText>
-            <Image source={require('@/assets/images/react-logo.png')} style={styles.imageReact} />
-            <ExternalLink href="https://reactnative.dev/docs/images">
-              <ThemedText type="linkPrimary">Learn more</ThemedText>
-            </ExternalLink>
-          </Collapsible>
-
-          <Collapsible title="Light and dark mode components">
-            <ThemedText type="small">
-              This template has light and dark mode support. The{' '}
-              <ThemedText type="code">useColorScheme()</ThemedText> hook lets you inspect what the
-              user&apos;s current color scheme is, and so you can adjust UI colors accordingly.
-            </ThemedText>
-            <ExternalLink href="https://docs.expo.dev/develop/user-interface/color-themes/">
-              <ThemedText type="linkPrimary">Learn more</ThemedText>
-            </ExternalLink>
-          </Collapsible>
-
-          <Collapsible title="Animations">
-            <ThemedText type="small">
-              This template includes an example of an animated component. The{' '}
-              <ThemedText type="code">src/components/ui/collapsible.tsx</ThemedText> component uses
-              the powerful <ThemedText type="code">react-native-reanimated</ThemedText> library to
-              animate opening this hint.
-            </ThemedText>
-          </Collapsible>
-        </ThemedView>
-        {Platform.OS === 'web' && <WebBadge />}
-      </ThemedView>
+        <Text style={styles.formHeaderTitle}>Add a Review</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="Write your feedback here..."
+          value={reviewText}
+          onChangeText={setReviewText}
+          multiline
+        />
+        <TouchableOpacity style={styles.submitButton} onPress={() => setReviewText('')}>
+          <Text style={styles.submitButtonText}>Submit Review</Text>
+        </TouchableOpacity>
+      </View>
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  scrollView: {
+  container: {
     flex: 1,
+    backgroundColor: '#f1f5f9',
   },
   contentContainer: {
-    flexDirection: 'row',
+    padding: 16,
+    paddingBottom: 40,
+  },
+  headerCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    padding: 20,
+    alignItems: 'center',
+    marginBottom: 16,
+    elevation: 2,
+  },
+  avatarPlaceholder: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#0284c7',
     justifyContent: 'center',
-  },
-  container: {
-    maxWidth: MaxContentWidth,
-    flexGrow: 1,
-  },
-  titleContainer: {
-    gap: Spacing.three,
     alignItems: 'center',
-    paddingHorizontal: Spacing.four,
-    paddingVertical: Spacing.six,
+    marginBottom: 12,
   },
-  centerText: {
-    textAlign: 'center',
+  avatarText: {
+    color: '#ffffff',
+    fontSize: 32,
+    fontWeight: 'bold',
   },
-  pressed: {
-    opacity: 0.7,
+  nameText: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#0f172a',
   },
-  linkButton: {
-    flexDirection: 'row',
-    paddingHorizontal: Spacing.four,
-    paddingVertical: Spacing.two,
-    borderRadius: Spacing.five,
+  categoryText: {
+    fontSize: 16,
+    color: '#0284c7',
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  locationText: {
+    fontSize: 14,
+    color: '#64748b',
+    marginTop: 6,
+  },
+  card: {
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    padding: 18,
+    marginBottom: 16,
+    elevation: 2,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#0f172a',
+    marginBottom: 10,
+  },
+  bioText: {
+    fontSize: 14,
+    color: '#334155',
+    lineHeight: 22,
+  },
+  mapContainer: {
+    height: 180,
+    borderRadius: 12,
+    overflow: 'hidden',
+    backgroundColor: '#e2e8f0',
+  },
+  mapMock: {
+    flex: 1,
     justifyContent: 'center',
-    gap: Spacing.one,
+    alignItems: 'center',
+    backgroundColor: '#cbd5e1',
+  },
+  mapPinIcon: {
+    fontSize: 28,
+  },
+  mapText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#1e293b',
+    marginTop: 4,
+  },
+  coordinatesText: {
+    fontSize: 12,
+    color: '#64748b',
+    marginTop: 2,
+  },
+  ratingText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#0f172a',
+    marginBottom: 12,
+  },
+  formHeaderTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#334155',
+    marginTop: 8,
+    marginBottom: 6,
+  },
+  input: {
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+    borderRadius: 8,
+    padding: 10,
+    minHeight: 70,
+    textAlignVertical: 'top',
+    marginBottom: 12,
+  },
+  submitButton: {
+    backgroundColor: '#0284c7',
+    paddingVertical: 12,
+    borderRadius: 8,
     alignItems: 'center',
   },
-  sectionsWrapper: {
-    gap: Spacing.five,
-    paddingHorizontal: Spacing.four,
-    paddingTop: Spacing.three,
-  },
-  collapsibleContent: {
-    alignItems: 'center',
-  },
-  imageTutorial: {
-    width: '100%',
-    aspectRatio: 296 / 171,
-    borderRadius: Spacing.three,
-    marginTop: Spacing.two,
-  },
-  imageReact: {
-    width: 100,
-    height: 100,
-    alignSelf: 'center',
+  submitButtonText: {
+    color: '#ffffff',
+    fontWeight: '700',
+    fontSize: 15,
   },
 });
