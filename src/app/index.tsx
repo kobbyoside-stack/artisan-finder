@@ -1,25 +1,22 @@
-import { User } from '@supabase/supabase-js';
 import * as ImagePicker from 'expo-image-picker';
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  FlatList,
   Image,
   Linking,
-  Modal,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
-  View
+  View,
 } from 'react-native';
-import { supabase } from '../lib/supabase';
+import { supabase } from '../supabase';
 
 interface Review {
   id: number;
-  artisan_id: number;
   user_email: string;
   rating: number;
   comment: string;
@@ -37,585 +34,545 @@ interface Artisan {
   user_id?: string;
 }
 
-const CATEGORIES = ['All', 'Auto Mechanic', 'Electrician', 'Plumber', 'Carpenter', 'Welder'];
-const CITIES = ['All Cities', 'Kumasi', 'Accra', 'Takoradi', 'Tamale', 'Sunyani'];
-
 export default function HomeScreen() {
   const [artisans, setArtisans] = useState<Artisan[]>([]);
-  const [filteredArtisans, setFilteredArtisans] = useState<Artisan[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedCity, setSelectedCity] = useState('All');
   const [selectedCategory, setSelectedCategory] = useState('All');
-  const [selectedCity, setSelectedCity] = useState('All Cities');
 
-  // Auth State
-  const [user, setUser] = useState<User | null>(null);
-  const [isAuthModalVisible, setIsAuthModalVisible] = useState(false);
-  const [authEmail, setAuthEmail] = useState('');
-  const [authPassword, setAuthPassword] = useState('');
-  const [isSignUp, setIsSignUp] = useState(false);
-  const [authLoading, setAuthLoading] = useState(false);
+  // New Artisan Form state
+  const [name, setName] = useState('');
+  const [trade, setTrade] = useState('');
+  const [location, setLocation] = useState('');
+  const [phone, setPhone] = useState('');
+  const [bio, setBio] = useState('');
+  const [image, setImage] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // My Profile View State
-  const [showMyListingsOnly, setShowMyListingsOnly] = useState(false);
-
-  // Detail Modal & Reviews
-  const [selectedArtisan, setSelectedArtisan] = useState<Artisan | null>(null);
-  const [reviews, setReviews] = useState<Review[]>([]);
-  const [newReviewComment, setNewReviewComment] = useState('');
-  const [reviewSubmitting, setReviewSubmitting] = useState(false);
-
-  // Registration & Editing State
-  const [isAddModalVisible, setIsAddModalVisible] = useState(false);
-  const [editingArtisanId, setEditingArtisanId] = useState<number | null>(null);
-  const [newName, setNewName] = useState('');
-  const [newTrade, setNewTrade] = useState('Auto Mechanic');
-  const [newLocation, setNewLocation] = useState('Kumasi');
-  const [newPhone, setNewPhone] = useState('');
-  const [newBio, setNewBio] = useState('');
-  const [imageUri, setImageUri] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
+  // Reviews State
+  const [reviewsMap, setReviewsMap] = useState<{ [artisanId: number]: Review[] }>({});
+  const [newReviewRating, setNewReviewRating] = useState<{ [artisanId: number]: string }>({});
+  const [newReviewComment, setNewReviewComment] = useState<{ [artisanId: number]: string }>({});
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null);
-    });
-
-    const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
-      fetchArtisans();
-    });
-
     fetchArtisans();
-
-    const channel = supabase
-      .channel('schema-db-changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'artisans' }, () => {
-        fetchArtisans();
-      })
-      .subscribe();
-
-    return () => {
-      authListener.subscription.unsubscribe();
-      supabase.removeChannel(channel);
-    };
   }, []);
 
-  useEffect(() => {
-    filterData();
-  }, [searchQuery, selectedCategory, selectedCity, showMyListingsOnly, artisans]);
-
-  async function fetchArtisans() {
-    try {
-      setLoading(true);
-      const { data, error } = await supabase.from('artisans').select('*').order('id', { ascending: false });
-      if (!error && data) {
-        setArtisans(data);
-      }
-    } finally {
-      setLoading(false);
+  const fetchArtisans = async () => {
+    setLoading(true);
+    const { data, error } = await supabase.from('artisans').select('*');
+    if (error) {
+      Alert.alert('Error fetching artisans', error.message);
+    } else if (data) {
+      setArtisans(data);
+      data.forEach((artisan) => fetchReviews(artisan.id));
     }
-  }
+    setLoading(false);
+  };
 
-  async function fetchReviews(artisanId: number) {
-    const { data } = await supabase.from('reviews').select('*').eq('artisan_id', artisanId).order('id', { ascending: false });
-    if (data) setReviews(data);
-  }
-
-  function filterData() {
-    let result = artisans;
-
-    if (showMyListingsOnly && user) {
-      result = result.filter((item) => item.user_id === user.id);
+  const fetchReviews = async (artisanId: number) => {
+    const { data, error } = await supabase
+      .from('reviews')
+      .select('*')
+      .eq('artisan_id', artisanId);
+    if (!error && data) {
+      setReviewsMap((prev) => ({ ...prev, [artisanId]: data }));
     }
+  };
 
-    if (selectedCategory !== 'All') {
-      result = result.filter((item) => item.trade.toLowerCase() === selectedCategory.toLowerCase());
+  const openMap = (loc: string) => {
+    const encoded = encodeURIComponent(loc);
+    const url = Platform.select({
+      ios: `maps:0,0?q=${encoded}`,
+      android: `geo:0,0?q=${encoded}`,
+      web: `https://www.google.com/maps/search/?api=1&query=${encoded}`,
+    });
+    if (url) {
+      Linking.openURL(url);
     }
-
-    if (selectedCity !== 'All Cities') {
-      result = result.filter((item) => item.location.toLowerCase().includes(selectedCity.toLowerCase()));
-    }
-
-    if (searchQuery.trim() !== '') {
-      const q = searchQuery.toLowerCase();
-      result = result.filter(
-        (item) => item.name.toLowerCase().includes(q) || item.trade.toLowerCase().includes(q) || item.location.toLowerCase().includes(q)
-      );
-    }
-    setFilteredArtisans(result);
-  }
+  };
 
   const pickImage = async () => {
-    const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permissionResult.granted) {
-      Alert.alert('Permission Denied', 'Camera roll permissions are required to select photos.');
-      return;
-    }
-
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
-      quality: 0.7,
+      aspect: [4, 3],
+      quality: 0.8,
     });
 
-    if (!result.canceled && result.assets[0].uri) {
-      setImageUri(result.assets[0].uri);
+    if (!result.canceled) {
+      setImage(result.assets[0].uri);
     }
   };
 
-  const uploadImage = async (uri: string): Promise<string | null> => {
+  const handleAddArtisan = async () => {
+    if (!name || !trade || !location || !phone) {
+      Alert.alert('Missing Fields', 'Please fill in all required fields.');
+      return;
+    }
+
+    setIsSubmitting(true);
     try {
-      const response = await fetch(uri);
-      const blob = await response.blob();
-      const fileName = `${Date.now()}_portfolio.jpg`;
+      let imageUrl = '';
+      if (image) {
+        const response = await fetch(image);
+        const blob = await response.blob();
+        const fileName = `${Date.now()}_artisan.jpg`;
+        const { error: uploadError } = await supabase.storage
+          .from('artisan-images')
+          .upload(fileName, blob);
 
-      const { data, error } = await supabase.storage.from('portfolios').upload(fileName, blob, {
-        contentType: 'image/jpeg',
-      });
+        if (uploadError) throw uploadError;
 
-      if (error) {
-        console.error('Storage Upload Error:', error);
-        return null;
+        const { data: publicUrlData } = supabase.storage
+          .from('artisan-images')
+          .getPublicUrl(fileName);
+
+        imageUrl = publicUrlData.publicUrl;
       }
 
-      const { data: publicUrlData } = supabase.storage.from('portfolios').getPublicUrl(fileName);
-      return publicUrlData.publicUrl;
-    } catch (err) {
-      console.error('Upload catch error:', err);
-      return null;
-    }
-  };
-
-  const handleCall = (phone: string) => Linking.openURL(`tel:${phone}`);
-
-  const handleWhatsApp = (phone: string, name: string) => {
-    let cleanPhone = phone.replace(/[^0-9]/g, '');
-    cleanPhone = cleanPhone.replace(/^0+/, '');
-
-    if (!cleanPhone.startsWith('233')) {
-      cleanPhone = '233' + cleanPhone;
-    }
-
-    const message = encodeURIComponent(`Hello ${name}, I found your profile on Artisan Finder!`);
-    const whatsappAppUrl = `whatsapp://send?phone=${cleanPhone}&text=${message}`;
-    const whatsappWebUrl = `https://wa.me/${cleanPhone}?text=${message}`;
-
-    Linking.canOpenURL(whatsappAppUrl).then((supported) => {
-      if (supported) {
-        Linking.openURL(whatsappAppUrl);
-      } else {
-        Linking.openURL(whatsappWebUrl);
-      }
-    });
-  };
-
-  const handleOpenMap = (location: string) => {
-    Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(location)}`);
-  };
-
-  async function handleAuth() {
-    if (!authEmail || !authPassword) return Alert.alert('Error', 'Please enter email and password.');
-    setAuthLoading(true);
-    const { error } = isSignUp
-      ? await supabase.auth.signUp({ email: authEmail, password: authPassword })
-      : await supabase.auth.signInWithPassword({ email: authEmail, password: authPassword });
-
-    setAuthLoading(false);
-    if (error) Alert.alert('Auth Error', error.message);
-    else setIsAuthModalVisible(false);
-  }
-
-  const handleOpenEdit = (artisan: Artisan) => {
-    setEditingArtisanId(artisan.id);
-    setNewName(artisan.name);
-    setNewTrade(artisan.trade);
-    setNewLocation(artisan.location);
-    setNewPhone(artisan.phone);
-    setNewBio(artisan.bio);
-    setImageUri(artisan.image_url || null);
-    setSelectedArtisan(null);
-    setIsAddModalVisible(true);
-  };
-
-  const handleDeleteArtisan = (id: number) => {
-    Alert.alert('Delete Listing', 'Are you sure you want to delete this listing?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete',
-        style: 'destructive',
-        onPress: async () => {
-          const { error } = await supabase.from('artisans').delete().eq('id', id);
-          if (error) Alert.alert('Error', error.message);
-          else {
-            setSelectedArtisan(null);
-            fetchArtisans();
-          }
-        },
-      },
-    ]);
-  };
-
-  async function handleSaveArtisan() {
-    if (!newName || !newTrade || !newPhone) return Alert.alert('Required', 'Name, Trade, and Phone are required.');
-    setSubmitting(true);
-
-    let uploadedUrl = imageUri;
-
-    if (imageUri && imageUri.startsWith('file://')) {
-      const remoteUrl = await uploadImage(imageUri);
-      if (remoteUrl) uploadedUrl = remoteUrl;
-    }
-
-    if (editingArtisanId) {
-      const { error } = await supabase
-        .from('artisans')
-        .update({
-          name: newName,
-          trade: newTrade,
-          location: newLocation || 'Kumasi',
-          phone: newPhone,
-          bio: newBio || 'No bio provided.',
-          image_url: uploadedUrl,
-        })
-        .eq('id', editingArtisanId);
-
-      setSubmitting(false);
-      if (error) Alert.alert('Error', error.message);
-      else {
-        resetForm();
-        fetchArtisans();
-      }
-    } else {
       const { error } = await supabase.from('artisans').insert([
         {
-          name: newName,
-          trade: newTrade,
-          location: newLocation || 'Kumasi',
-          phone: newPhone,
-          bio: newBio || 'No bio provided.',
-          image_url: uploadedUrl,
-          rating: '5.0 ★',
-          user_id: user?.id ?? null,
+          name,
+          trade,
+          location,
+          phone,
+          bio: bio || 'No biography provided.',
+          rating: '5.0',
+          image_url: imageUrl,
         },
       ]);
 
-      setSubmitting(false);
-      if (error) Alert.alert('Error', error.message);
-      else {
-        resetForm();
-        fetchArtisans();
-      }
+      if (error) throw error;
+
+      Alert.alert('Success', 'Artisan added successfully!');
+      setName('');
+      setTrade('');
+      setLocation('');
+      setPhone('');
+      setBio('');
+      setImage(null);
+      fetchArtisans();
+    } catch (err: any) {
+      Alert.alert('Error', err.message || 'Failed to add artisan');
+    } finally {
+      setIsSubmitting(false);
     }
-  }
+  };
 
-  function resetForm() {
-    setIsAddModalVisible(false);
-    setEditingArtisanId(null);
-    setNewName('');
-    setNewTrade('Auto Mechanic');
-    setNewLocation('Kumasi');
-    setNewPhone('');
-    setNewBio('');
-    setImageUri(null);
-  }
+  const handleAddReview = async (artisanId: number) => {
+    const ratingStr = newReviewRating[artisanId];
+    const comment = newReviewComment[artisanId];
 
-  async function handleAddReview() {
-    if (!user) return Alert.alert('Login Required', 'Please log in to leave a review.');
-    if (!selectedArtisan) return;
-    setReviewSubmitting(true);
+    if (!ratingStr || !comment) {
+      Alert.alert('Error', 'Please provide both rating and comment.');
+      return;
+    }
+
     const { error } = await supabase.from('reviews').insert([
       {
-        artisan_id: selectedArtisan.id,
-        user_email: user.email,
-        rating: 5,
-        comment: newReviewComment,
+        artisan_id: artisanId,
+        rating: parseFloat(ratingStr),
+        comment,
       },
     ]);
-    setReviewSubmitting(false);
-    if (error) Alert.alert('Error', error.message);
-    else {
-      setNewReviewComment('');
-      fetchReviews(selectedArtisan.id);
-    }
-  }
 
-  if (loading) {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color="#2563eb" />
-      </View>
-    );
-  }
+    if (error) {
+      Alert.alert('Error adding review', error.message);
+    } else {
+      Alert.alert('Success', 'Review submitted!');
+      setNewReviewRating((prev) => ({ ...prev, [artisanId]: '' }));
+      setNewReviewComment((prev) => ({ ...prev, [artisanId]: '' }));
+      fetchReviews(artisanId);
+    }
+  };
+
+  const filteredArtisans = artisans.filter((item) => {
+    const matchesSearch =
+      item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      item.trade.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      item.location.toLowerCase().includes(searchQuery.toLowerCase());
+
+    const matchesCity =
+      selectedCity === 'All' || selectedCity === 'All Cities'
+        ? true
+        : item.location.toLowerCase().includes(selectedCity.toLowerCase());
+
+    const matchesCategory =
+      selectedCategory === 'All'
+        ? true
+        : item.trade.toLowerCase() === selectedCategory.toLowerCase();
+
+    return matchesSearch && matchesCity && matchesCategory;
+  });
 
   return (
-    <View style={styles.container}>
-      <View style={styles.headerRow}>
-        <View>
-          <Text style={styles.headerTitle}>Find Artisans</Text>
-          {user && <Text style={styles.userSubtitle}>Logged in as: {user.email}</Text>}
-        </View>
-        <View style={{ flexDirection: 'row', gap: 6 }}>
-          {user ? (
-            <>
-              <TouchableOpacity
-                style={[styles.authButton, showMyListingsOnly && styles.activeTabBtn]}
-                onPress={() => setShowMyListingsOnly(!showMyListingsOnly)}
-              >
-                <Text style={styles.authButtonText}>{showMyListingsOnly ? 'All Listings' : 'My Listings'}</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.authButton} onPress={() => supabase.auth.signOut()}>
-                <Text style={styles.authButtonText}>Sign Out</Text>
-              </TouchableOpacity>
-            </>
-          ) : (
-            <TouchableOpacity style={styles.authButton} onPress={() => setIsAuthModalVisible(true)}>
-              <Text style={styles.authButtonText}>Login</Text>
-            </TouchableOpacity>
-          )}
-          <TouchableOpacity style={styles.addButtonHeader} onPress={() => { resetForm(); setIsAddModalVisible(true); }}>
-            <Text style={styles.addButtonHeaderText}>+ Register</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
+    <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
+      <Text style={styles.pageTitle}>Find Artisans</Text>
 
+      {/* Search Input */}
       <TextInput
         style={styles.searchInput}
         placeholder="Search by name, trade, or city..."
+        placeholderTextColor="#71717a"
         value={searchQuery}
         onChangeText={setSearchQuery}
       />
 
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.scrollWrapper}>
-        {CITIES.map((city) => (
+      {/* City Filters */}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterRow}>
+        {['All Cities', 'Kumasi', 'Accra', 'Takoradi'].map((city) => (
           <TouchableOpacity
             key={city}
-            style={[styles.cityChip, selectedCity === city && styles.cityChipSelected]}
+            style={[styles.cityChip, selectedCity === city && styles.activeChip]}
             onPress={() => setSelectedCity(city)}
           >
-            <Text style={[styles.cityChipText, selectedCity === city && styles.cityChipTextSelected]}>📍 {city}</Text>
+            <Text style={styles.chipText}>📍 {city}</Text>
           </TouchableOpacity>
         ))}
       </ScrollView>
 
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.scrollWrapper}>
-        {CATEGORIES.map((cat) => (
+      {/* Category Filters */}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterRow}>
+        {['All', 'Auto Mechanic', 'Electrician', 'Plumber', 'Carpenter'].map((cat) => (
           <TouchableOpacity
             key={cat}
-            style={[styles.chip, selectedCategory === cat && styles.chipSelected]}
+            style={[styles.categoryChip, selectedCategory === cat && styles.activeChip]}
             onPress={() => setSelectedCategory(cat)}
           >
-            <Text style={[styles.chipText, selectedCategory === cat && styles.chipTextSelected]}>{cat}</Text>
+            <Text style={styles.chipText}>{cat}</Text>
           </TouchableOpacity>
         ))}
       </ScrollView>
 
-      <FlatList
-        data={filteredArtisans}
-        keyExtractor={(item) => item.id.toString()}
-        ListEmptyComponent={<Text style={styles.emptyText}>No listings found.</Text>}
-        renderItem={({ item }) => (
-          <TouchableOpacity
-            style={styles.card}
-            onPress={() => {
-              setSelectedArtisan(item);
-              fetchReviews(item.id);
-            }}
-          >
-            {item.image_url ? <Image source={{ uri: item.image_url }} style={styles.cardImage} /> : null}
-            <View style={styles.cardHeader}>
-              <Text style={styles.name}>{item.name}</Text>
-              <Text style={styles.rating}>{item.rating}</Text>
-            </View>
-            <Text style={styles.trade}>{item.trade}</Text>
-            <TouchableOpacity onPress={() => handleOpenMap(item.location)}>
-              <Text style={styles.location}>📍 {item.location} <Text style={styles.mapLink}>(Map)</Text></Text>
-            </TouchableOpacity>
-            <Text style={styles.bio} numberOfLines={2}>{item.bio}</Text>
-          </TouchableOpacity>
-        )}
-      />
+      {/* Artisan Cards List */}
+      {loading ? (
+        <ActivityIndicator size="large" color="#3b82f6" style={{ marginTop: 20 }} />
+      ) : (
+        <View style={styles.listContainer}>
+          {filteredArtisans.map((artisan) => (
+            <View key={artisan.id} style={styles.card}>
+              <View style={styles.cardHeader}>
+                <Text style={styles.artisanName}>{artisan.name}</Text>
+                <Text style={styles.ratingText}>{artisan.rating} ★</Text>
+              </View>
 
-      {/* DETAIL MODAL */}
-      <Modal visible={!!selectedArtisan} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
-          <ScrollView contentContainerStyle={styles.modalContent}>
-            {selectedArtisan && (
-              <>
-                <TouchableOpacity onPress={() => setSelectedArtisan(null)} style={styles.closeButton}>
-                  <Text style={styles.closeButtonText}>✕ Close</Text>
+              <Text style={styles.categoryText}>{artisan.trade}</Text>
+
+              {/* LOCATION ROW WITH INLINE MAP LINK */}
+              <View style={styles.locationRow}>
+                <Text style={styles.locationText}>📍 {artisan.location} </Text>
+                <TouchableOpacity onPress={() => openMap(artisan.location)}>
+                  <Text style={styles.mapLink}>(Map)</Text>
                 </TouchableOpacity>
+              </View>
 
-                {selectedArtisan.image_url ? (
-                  <Image source={{ uri: selectedArtisan.image_url }} style={styles.detailImage} />
-                ) : null}
+              <Text style={styles.bioText}>{artisan.bio}</Text>
 
-                <Text style={styles.modalName}>{selectedArtisan.name}</Text>
-                <Text style={styles.modalTrade}>{selectedArtisan.trade}</Text>
-                <Text style={styles.bioText}>{selectedArtisan.bio}</Text>
-
-                {user && selectedArtisan.user_id === user.id && (
-                  <View style={styles.ownerActionsRow}>
-                    <TouchableOpacity style={styles.editBtn} onPress={() => handleOpenEdit(selectedArtisan)}>
-                      <Text style={styles.btnText}>✏️ Edit Listing</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={styles.deleteBtn} onPress={() => handleDeleteArtisan(selectedArtisan.id)}>
-                      <Text style={styles.btnText}>🗑️ Delete</Text>
-                    </TouchableOpacity>
-                  </View>
-                )}
-
-                <View style={styles.actionRow}>
-                  <TouchableOpacity style={styles.callBtn} onPress={() => handleCall(selectedArtisan.phone)}>
-                    <Text style={styles.btnText}>📞 Call</Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={styles.whatsappBtn}
-                    onPress={() => handleWhatsApp(selectedArtisan.phone, selectedArtisan.name)}
-                  >
-                    <Text style={styles.btnText}>💬 WhatsApp</Text>
-                  </TouchableOpacity>
+              {/* Reviews Section */}
+              {reviewsMap[artisan.id] && reviewsMap[artisan.id].length > 0 && (
+                <View style={styles.reviewsList}>
+                  {reviewsMap[artisan.id].map((rev) => (
+                    <View key={rev.id} style={styles.reviewItem}>
+                      <Text style={styles.reviewUser}>Rating: {rev.rating} ★</Text>
+                      <Text style={styles.reviewComment}>{rev.comment}</Text>
+                    </View>
+                  ))}
                 </View>
+              )}
 
-                <Text style={styles.sectionTitle}>Reviews & Ratings</Text>
-                {reviews.map((r) => (
-                  <View key={r.id} style={styles.reviewCard}>
-                    <Text style={styles.reviewUser}>{r.user_email} • {'★'.repeat(r.rating)}</Text>
-                    <Text style={styles.reviewComment}>{r.comment}</Text>
-                  </View>
-                ))}
-
-                {user ? (
-                  <View style={styles.addReviewForm}>
-                    <TextInput
-                      style={styles.input}
-                      placeholder="Write your review or feedback..."
-                      value={newReviewComment}
-                      onChangeText={setNewReviewComment}
-                    />
-                    <TouchableOpacity style={styles.submitButton} onPress={handleAddReview} disabled={reviewSubmitting}>
-                      <Text style={styles.submitButtonText}>Submit Review</Text>
-                    </TouchableOpacity>
-                  </View>
-                ) : (
-                  <Text style={styles.loginHint}>Log in to leave a review for this artisan.</Text>
-                )}
-              </>
-            )}
-          </ScrollView>
+              {/* Add Review Form */}
+              <View style={styles.addReviewForm}>
+                <TextInput
+                  style={styles.inputSmall}
+                  placeholder="Rating (1-5)"
+                  placeholderTextColor="#71717a"
+                  keyboardType="numeric"
+                  value={newReviewRating[artisan.id] || ''}
+                  onChangeText={(val) =>
+                    setNewReviewRating((prev) => ({ ...prev, [artisan.id]: val }))
+                  }
+                />
+                <TextInput
+                  style={styles.inputSmall}
+                  placeholder="Write a comment..."
+                  placeholderTextColor="#71717a"
+                  value={newReviewComment[artisan.id] || ''}
+                  onChangeText={(val) =>
+                    setNewReviewComment((prev) => ({ ...prev, [artisan.id]: val }))
+                  }
+                />
+                <TouchableOpacity
+                  style={styles.smallSubmitBtn}
+                  onPress={() => handleAddReview(artisan.id)}
+                >
+                  <Text style={styles.smallSubmitText}>Post Review</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          ))}
         </View>
-      </Modal>
+      )}
 
-      {/* REGISTER / EDIT MODAL */}
-      <Modal visible={isAddModalVisible} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
-          <ScrollView contentContainerStyle={styles.modalContent}>
-            <TouchableOpacity onPress={resetForm} style={styles.closeButton}>
-              <Text style={styles.closeButtonText}>✕ Close</Text>
-            </TouchableOpacity>
+      {/* Registration Form Card */}
+      <View style={styles.cardForm}>
+        <Text style={styles.formHeaderTitle}>Register New Artisan</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="Full Name"
+          placeholderTextColor="#71717a"
+          value={name}
+          onChangeText={setName}
+        />
+        <TextInput
+          style={styles.input}
+          placeholder="Trade (e.g. Auto Mechanic)"
+          placeholderTextColor="#71717a"
+          value={trade}
+          onChangeText={setTrade}
+        />
+        <TextInput
+          style={styles.input}
+          placeholder="Location (e.g. Kumasi)"
+          placeholderTextColor="#71717a"
+          value={location}
+          onChangeText={setLocation}
+        />
+        <TextInput
+          style={styles.input}
+          placeholder="Phone Number"
+          placeholderTextColor="#71717a"
+          value={phone}
+          onChangeText={setPhone}
+        />
+        <TextInput
+          style={[styles.input, { height: 70 }]}
+          placeholder="Bio / Short Description"
+          placeholderTextColor="#71717a"
+          multiline
+          value={bio}
+          onChangeText={setBio}
+        />
 
-            <Text style={styles.formHeaderTitle}>{editingArtisanId ? 'Edit Listing' : 'Register New Artisan'}</Text>
-            
-            <TextInput style={styles.input} placeholder="Full Name *" value={newName} onChangeText={setNewName} />
-            <TextInput style={styles.input} placeholder="Trade / Specialty *" value={newTrade} onChangeText={setNewTrade} />
-            <TextInput style={styles.input} placeholder="Location / City (e.g., Kumasi)" value={newLocation} onChangeText={setNewLocation} />
-            <TextInput style={styles.input} placeholder="Phone Number *" value={newPhone} onChangeText={setNewPhone} keyboardType="phone-pad" />
-            <TextInput style={[styles.input, { height: 70 }]} placeholder="Short Bio / Services" value={newBio} onChangeText={setNewBio} multiline />
+        <TouchableOpacity style={styles.imagePickerBtn} onPress={pickImage}>
+          <Text style={styles.imagePickerText}>
+            {image ? 'Image Selected ✔' : 'Pick Profile Image'}
+          </Text>
+        </TouchableOpacity>
 
-            <TouchableOpacity style={styles.imagePickerBtn} onPress={pickImage}>
-              <Text style={styles.imagePickerText}>{imageUri ? '📸 Change Photo' : '📷 Pick Portfolio Photo'}</Text>
-            </TouchableOpacity>
+        {image && <Image source={{ uri: image }} style={styles.previewImage} />}
 
-            {imageUri ? <Image source={{ uri: imageUri }} style={styles.previewImage} /> : null}
-
-            <TouchableOpacity style={styles.submitButton} onPress={handleSaveArtisan} disabled={submitting}>
-              {submitting ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitButtonText}>{editingArtisanId ? 'Update Listing' : 'Save Artisan'}</Text>}
-            </TouchableOpacity>
-          </ScrollView>
-        </View>
-      </Modal>
-
-      {/* AUTH MODAL */}
-      <Modal visible={isAuthModalVisible} animationType="fade" transparent>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <TouchableOpacity onPress={() => setIsAuthModalVisible(false)} style={styles.closeButton}>
-              <Text style={styles.closeButtonText}>✕ Close</Text>
-            </TouchableOpacity>
-            <Text style={styles.formHeaderTitle}>{isSignUp ? 'Sign Up' : 'Log In'}</Text>
-            <TextInput style={styles.input} placeholder="Email" value={authEmail} onChangeText={setAuthEmail} autoCapitalize="none" />
-            <TextInput style={styles.input} placeholder="Password" value={authPassword} onChangeText={setAuthPassword} secureTextEntry />
-            <TouchableOpacity style={styles.submitButton} onPress={handleAuth} disabled={authLoading}>
-              <Text style={styles.submitButtonText}>{isSignUp ? 'Sign Up' : 'Log In'}</Text>
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => setIsSignUp(!isSignUp)} style={{ alignSelf: 'center', marginTop: 10 }}>
-              <Text style={{ color: '#2563eb' }}>{isSignUp ? 'Switch to Login' : 'Create an Account'}</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-    </View>
+        <TouchableOpacity
+          style={styles.submitButton}
+          onPress={handleAddArtisan}
+          disabled={isSubmitting}
+        >
+          <Text style={styles.submitButtonText}>
+            {isSubmitting ? 'Registering...' : 'Register Artisan'}
+          </Text>
+        </TouchableOpacity>
+      </View>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f4f6f8', paddingHorizontal: 16, paddingTop: 60 },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  headerRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 },
-  headerTitle: { fontSize: 20, fontWeight: '700' },
-  userSubtitle: { fontSize: 10, color: '#6b7280' },
-  authButton: { backgroundColor: '#e5e7eb', paddingHorizontal: 8, paddingVertical: 6, borderRadius: 6 },
-  activeTabBtn: { backgroundColor: '#bfdbfe' },
-  authButtonText: { fontSize: 11, fontWeight: '600' },
-  addButtonHeader: { backgroundColor: '#10b981', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6 },
-  addButtonHeaderText: { color: '#fff', fontSize: 11, fontWeight: '600' },
-  searchInput: { backgroundColor: '#fff', padding: 10, borderRadius: 10, borderWidth: 1, borderColor: '#e5e7eb', marginBottom: 8 },
-  scrollWrapper: { flexGrow: 0, marginBottom: 8 },
-  cityChip: { backgroundColor: '#f3f4f6', paddingHorizontal: 12, paddingVertical: 5, borderRadius: 12, marginRight: 6 },
-  cityChipSelected: { backgroundColor: '#1e293b' },
-  cityChipText: { fontSize: 11, color: '#4b5563' },
-  cityChipTextSelected: { color: '#fff', fontWeight: '600' },
-  chip: { backgroundColor: '#fff', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, marginRight: 6, borderWidth: 1, borderColor: '#e5e7eb' },
-  chipSelected: { backgroundColor: '#2563eb', borderColor: '#2563eb' },
-  chipText: { fontSize: 12, color: '#374151' },
-  chipTextSelected: { color: '#fff', fontWeight: '600' },
-  card: { backgroundColor: '#fff', padding: 14, borderRadius: 12, marginBottom: 12, borderWidth: 1, borderColor: '#e5e7eb' },
-  cardImage: { width: '100%', height: 140, borderRadius: 8, marginBottom: 8 },
-  cardHeader: { flexDirection: 'row', justifyContent: 'space-between' },
-  name: { fontSize: 16, fontWeight: '700' },
-  rating: { color: '#d97706', fontWeight: '600' },
-  trade: { color: '#2563eb', fontWeight: '600', fontSize: 13 },
-  location: { fontSize: 12, color: '#6b7280', marginVertical: 2 },
-  mapLink: { color: '#2563eb', fontWeight: '600' },
-  bio: { fontSize: 12, color: '#4b5563', marginTop: 4 },
-  emptyText: { textAlign: 'center', color: '#9ca3af', marginTop: 40 },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
-  modalContent: { backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, maxHeight: '90%' },
-  closeButton: { alignSelf: 'flex-end', marginBottom: 10 },
-  closeButtonText: { color: '#6b7280', fontWeight: '600' },
-  detailImage: { width: '100%', height: 180, borderRadius: 10, marginBottom: 12 },
-  modalName: { fontSize: 20, fontWeight: '700' },
-  modalTrade: { fontSize: 14, color: '#2563eb', fontWeight: '600', marginBottom: 6 },
-  bioText: { fontSize: 13, color: '#374151', marginBottom: 16 },
-  ownerActionsRow: { flexDirection: 'row', gap: 10, marginBottom: 14 },
-  editBtn: { flex: 1, backgroundColor: '#f59e0b', padding: 10, borderRadius: 8, alignItems: 'center' },
-  deleteBtn: { flex: 1, backgroundColor: '#ef4444', padding: 10, borderRadius: 8, alignItems: 'center' },
-  actionRow: { flexDirection: 'row', gap: 10, marginBottom: 20 },
-  callBtn: { flex: 1, backgroundColor: '#2563eb', padding: 12, borderRadius: 8, alignItems: 'center' },
-  whatsappBtn: { flex: 1, backgroundColor: '#25d366', padding: 12, borderRadius: 8, alignItems: 'center' },
-  btnText: { color: '#fff', fontWeight: '700', fontSize: 13 },
-  sectionTitle: { fontSize: 15, fontWeight: '700', marginBottom: 8 },
-  reviewCard: { backgroundColor: '#f8fafc', padding: 10, borderRadius: 8, marginBottom: 6 },
-  reviewUser: { fontSize: 11, fontWeight: '600', color: '#111827' },
-  reviewComment: { fontSize: 12, color: '#4b5563', marginTop: 2 },
-  addReviewForm: { marginTop: 10 },
-  loginHint: { fontSize: 11, color: '#9ca3af', fontStyle: 'italic', marginTop: 8 },
-  formHeaderTitle: { fontSize: 18, fontWeight: '700', marginBottom: 12 },
-  input: { backgroundColor: '#fff', padding: 10, borderRadius: 8, borderWidth: 1, borderColor: '#e5e7eb', marginBottom: 10, fontSize: 13 },
-  imagePickerBtn: { backgroundColor: '#e2e8f0', padding: 12, borderRadius: 8, alignItems: 'center', marginBottom: 10 },
-  imagePickerText: { color: '#334155', fontWeight: '600', fontSize: 13 },
-  previewImage: { width: '100%', height: 120, borderRadius: 8, marginBottom: 10 },
-  submitButton: { backgroundColor: '#10b981', padding: 12, borderRadius: 8, alignItems: 'center', marginTop: 4 },
-  submitButtonText: { color: '#fff', fontWeight: '700' },
+  container: {
+    flex: 1,
+    backgroundColor: '#09090b',
+  },
+  contentContainer: {
+    padding: 16,
+    paddingBottom: 40,
+  },
+  pageTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#ffffff',
+    marginBottom: 16,
+  },
+  searchInput: {
+    backgroundColor: '#18181b',
+    borderColor: '#27272a',
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 12,
+    color: '#ffffff',
+    fontSize: 14,
+    marginBottom: 16,
+  },
+  filterRow: {
+    flexDirection: 'row',
+    marginBottom: 12,
+  },
+  cityChip: {
+    backgroundColor: '#18181b',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    marginRight: 8,
+    borderWidth: 1,
+    borderColor: '#27272a',
+  },
+  categoryChip: {
+    backgroundColor: '#18181b',
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 16,
+    marginRight: 8,
+    borderWidth: 1,
+    borderColor: '#27272a',
+  },
+  activeChip: {
+    backgroundColor: '#1e3a8a',
+    borderColor: '#3b82f6',
+  },
+  chipText: {
+    color: '#e4e4e7',
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  listContainer: {
+    marginTop: 8,
+  },
+  card: {
+    backgroundColor: '#18181b',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#27272a',
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  artisanName: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#ffffff',
+  },
+  ratingText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#f59e0b',
+  },
+  categoryText: {
+    fontSize: 14,
+    color: '#3b82f6',
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  locationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+    marginBottom: 8,
+  },
+  locationText: {
+    fontSize: 13,
+    color: '#a1a1aa',
+  },
+  mapLink: {
+    fontSize: 13,
+    color: '#60a5fa',
+    fontWeight: '600',
+  },
+  bioText: {
+    fontSize: 13,
+    color: '#d4d4d8',
+    lineHeight: 18,
+  },
+  reviewsList: {
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#27272a',
+  },
+  reviewItem: {
+    marginBottom: 6,
+  },
+  reviewUser: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#f59e0b',
+  },
+  reviewComment: {
+    fontSize: 12,
+    color: '#9ca3af',
+  },
+  addReviewForm: {
+    marginTop: 10,
+  },
+  inputSmall: {
+    backgroundColor: '#27272a',
+    borderRadius: 6,
+    padding: 8,
+    color: '#ffffff',
+    fontSize: 12,
+    marginBottom: 6,
+  },
+  smallSubmitBtn: {
+    backgroundColor: '#2563eb',
+    paddingVertical: 6,
+    borderRadius: 6,
+    alignItems: 'center',
+  },
+  smallSubmitText: {
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  cardForm: {
+    backgroundColor: '#18181b',
+    borderRadius: 12,
+    padding: 16,
+    marginTop: 20,
+    borderWidth: 1,
+    borderColor: '#27272a',
+  },
+  formHeaderTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#ffffff',
+    marginBottom: 12,
+  },
+  input: {
+    backgroundColor: '#27272a',
+    borderRadius: 8,
+    padding: 10,
+    color: '#ffffff',
+    fontSize: 14,
+    marginBottom: 10,
+  },
+  imagePickerBtn: {
+    backgroundColor: '#27272a',
+    padding: 10,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  imagePickerText: {
+    color: '#334155',
+    fontWeight: '600',
+  },
+  previewImage: {
+    width: '100%',
+    height: 120,
+    borderRadius: 8,
+    marginBottom: 10,
+  },
+  submitButton: {
+    backgroundColor: '#10b981',
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  submitButtonText: {
+    color: '#ffffff',
+    fontWeight: '700',
+    fontSize: 15,
+  },
 });
