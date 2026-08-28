@@ -555,7 +555,7 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   imagePickerText: {
-    color: '#334155',
+    color: '#9ca3af',
     fontWeight: '600',
   },
   previewImage: {
@@ -570,7 +570,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignItems: 'center',
   },
- submitButtonText: {
+  submitButtonText: {
     color: '#ffffff',
     fontWeight: '700',
     fontSize: 15,
