@@ -570,7 +570,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignItems: 'center',
   },
-  submitButtonText: {
+ submitButtonText: {
     color: '#ffffff',
     fontWeight: '700',
     fontSize: 15,
